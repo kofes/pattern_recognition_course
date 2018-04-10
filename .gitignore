@@ -4,3 +4,6 @@
 *.o
 main
 */.idea/*
+*/dev-build/*
+*/build/*
+*.log

@@ -1,0 +1,12 @@
+{
+	"presets": [["es2015", {"modules": false}], "react", "stage-1"],
+	"plugins": [
+		"transform-object-rest-spread",
+		"transform-es2015-destructuring"
+	],
+	"env": {
+		"development": {
+			"plugins": ["react-hot-loader/babel"]
+		}
+	}
+}
