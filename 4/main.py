@@ -7,9 +7,8 @@ import tkinter as tk
 from tkinter import ttk
 import numpy
 import matplotlib as mpl
-import matplotlib.patches as patches
-import matplotlib.backends.tkagg as tkagg
-from matplotlib.backends.backend_agg import FigureCanvasAgg
+import matplotlib.pyplot as plt
+import spectrum
 
 from inspect import getmembers, isfunction, getargspec
 import math_generator as gen
@@ -40,7 +39,8 @@ class MainFrame(tk.Tk):
             self.showFrame(frame)
             row += 1
         self.engines = {}
-        self.engines[RawGenerator] = RawGenerator(self)
+        for engine in (RawGenerator, StatGenerator):
+            self.engines[engine] = engine(self)
 
     def showFrame(self, container):
         frame = self.frames[container]
@@ -48,14 +48,75 @@ class MainFrame(tk.Tk):
 
     def update(self):
         print('update!')
-        frame = self.frames[CenterFrame].frames[RawFrame][0]
+        frame = self.frames[CenterFrame].frames[ParametersFrame]
+        values = frame.getParameters()
+        frame = self.frames[CenterFrame].frames[SelectorFrame]
+        funName = frame.getFunction()
+        engine = self.engines[RawGenerator]
+        raw = engine.generate(funName, values)
+        frame = self.frames[CenterFrame].frames[RawFrame]
         frame.clear()
+        for i in range(len(raw)):
+            frame.addValue('x[{0}]: {1}'.format(i, raw[i]))
+        frame = self.frames[CenterFrame].frames[SelectorFrame].frames[StatFrame]
+        engine = self.engines[StatGenerator]
+        frame.update(engine.compute(raw))
 
     def saveRaw(self):
-        print('Save button clicked!')
+        engine = self.engines[RawGenerator]
+        with open('raw.txt', 'w') as fout:
+            for i in range(len(engine.raw)):
+                fout.write('{}\n'.format(engine.raw[i]))
 
-    def plot(self):
-        print('Plot button clicked!')
+    def plotLinear(self):
+        engine = self.engines[RawGenerator]
+        x = numpy.arange(0, len(engine.raw), 1)
+        fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
+        ax = fig.gca()
+        plt.plot(x, engine.raw, '-', lw=2)
+        plt.grid(True)
+        plt.show()
+
+    def plotLines(self):
+        engine = self.engines[RawGenerator]
+        x = numpy.arange(0, len(engine.raw), 1)
+        fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
+        ax = fig.gca()
+        plt.plot(x, engine.raw, '.', lw=2)
+        plt.vlines(x, [0], engine.raw)
+        plt.grid(True)
+        plt.show()
+
+    def plotFFTAm(self):
+        engine = self.engines[RawGenerator]
+        fun = numpy.abs(numpy.fft.rfft(engine.raw))
+        x = numpy.arange(0, len(fun), 1)
+        fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
+        ax = fig.gca()
+        plt.plot(x, fun, '-', lw=2)
+        plt.grid(True)
+        plt.show()
+
+    def plotFFTMoment(self):
+        engine = self.engines[RawGenerator]
+        fun = numpy.angle(numpy.fft.rfft(engine.raw))
+        x = numpy.arange(0, len(fun), 1)
+        fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
+        ax = fig.gca()
+        plt.plot(x, fun, '-', lw=2)
+        plt.grid(True)
+        plt.show()
+
+    def plotSPM(self):
+        engine = self.engines[RawGenerator]
+        psd = spectrum.DaniellPeriodogram(engine.raw, 1)
+        psd_plot_data = numpy.sqrt(numpy.power(psd[0], 2.0) + numpy.power(psd[1], 2.0))
+        x = numpy.arange(0, len(psd_plot_data), 1)
+        fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
+        ax = fig.gca()
+        plt.plot(x, psd_plot_data, '-', lw=2)
+        plt.grid(True)
+        plt.show()
 
 
 class CenterFrame(tk.Frame):
@@ -68,7 +129,7 @@ class CenterFrame(tk.Frame):
 
         self.frames = {}
         column = 0
-        for frame in (SelectorFrame, RawFrame, ParametersFrame):
+        for frame in (SelectorFrame, ParametersFrame, RawFrame):
             self.frames[frame] = frame(self.container, self)
             self.frames[frame].grid(row=0,
                                     column=column,
@@ -108,8 +169,20 @@ class SelectorFrame(tk.Frame):
                                                     command=self.notifyParent)
             self.radioButtons[key].pack(side="top", anchor='w')
 
+        self.frames = {}
+        self.frames[StatFrame] = StatFrame(self, controller)
+        self.frames[StatFrame].pack(side="left")
+        self.showFrame(StatFrame)
+
+    def showFrame(self, container):
+        frame = self.frames[container]
+        frame.tkraise()
+
     def notifyParent(self):
         self.controller.setFunction(self.selector.get())
+
+    def getFunction(self):
+        return self.selector.get()
 
 
 class RawFrame(tk.Frame):
@@ -161,6 +234,24 @@ class ParametersFrame(tk.Frame):
                 self.entries[title].insert("end", defaults[i])
                 i += 1
 
+    def getParameters(self):
+        res = {}
+        for key, val in self.entries.items():
+            try:
+                if (key == 'n' or key == 'n0'):
+                    res[key] = int(val.get())
+                elif (key == 'aMass' or key == 'bMass'):
+                    res[key] = list(map(int, val.get().split(',')))
+                else:
+                    res[key] = float(val.get())
+            except ValueError:
+                print('Bad value at {}'.format(key))
+                if (key == 'aMass' or key == 'bMass'):
+                    res[key] = []
+                else:
+                    res[key] = 0
+        return res
+
 
 class BottomFrame(tk.Frame):
     def __init__(self, parent, controller):
@@ -175,10 +266,26 @@ class BottomFrame(tk.Frame):
                                      text='Save',
                                      command=lambda: controller.saveRaw())
         self.saveButton.pack(side="left", padx=2)
-        self.plotButton = ttk.Button(self,
-                                     text='Plot',
-                                     command=lambda: controller.plot())
-        self.plotButton.pack(side="left", padx=2)
+        self.plotLinearButton = ttk.Button(self,
+                                           text='Plot (linear inter.)',
+                                           command=lambda: controller.plotLinear())
+        self.plotLinearButton.pack(side="left", padx=2)
+        self.plotLinesButton = ttk.Button(self,
+                                          text='Plot (vetical lines)',
+                                          command=lambda: controller.plotLines())
+        self.plotLinesButton.pack(side="left", padx=2)
+        self.plotFFTAmButton = ttk.Button(self,
+                                          text='Plot (FFT Amplitude)',
+                                          command=lambda: controller.plotFFTAm())
+        self.plotFFTAmButton.pack(side="left", padx=2)
+        self.plotFFTMomentButton = ttk.Button(self,
+                                          text='Plot (FFT Phase)',
+                                          command=lambda: controller.plotFFTMoment())
+        self.plotFFTMomentButton.pack(side="left", padx=2)
+        self.plotSPMButton = ttk.Button(self,
+                                          text='Plot (SPM)',
+                                          command=lambda: controller.plotSPM())
+        self.plotSPMButton.pack(side="left", padx=2)
 
         self.button = ttk.Button(self,
                                  text="Run",
@@ -194,10 +301,45 @@ class RawGenerator:
                              if isfunction(f[1]) and f[0] != 'rename'])
 
     def generate(self, fun, parameters):
-        self.raw.clear()
+        self.raw = self.fun_list[fun](**parameters)
+        return self.raw
+
+
+class StatFrame(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+
+        self.vars = {}
+        for title in ("Среднее", "Дисперсия", "CKO", "Коэффициент вариации", "Коэффициент асимметрии", "Коэффициент эксцесса"):
+            self.vars[title] = tk.StringVar(self, title + ': None')
+            label = tk.Label(self, textvariable=self.vars[title])
+            label.pack(side="top", anchor="w")
+
+    def update(self, values):
+        for (key, value) in self.vars.items():
+            self.vars[key].set('\t' + key + ': None')
+        for _, (key, value) in zip(self.vars.items(), values.items()):
+            if (key in self.vars):
+                self.vars[key].set(key + ': ' + str(value))
+
+
+class StatGenerator:
+    def __init__(self, parent):
+        self.parent = parent
+        self.values = {}
+
+    def compute(self, raw):
+        N = len(raw)
+        self.values['Среднее'] = sum(raw) / N
+        self.values['Дисперсия'] = sum([(raw[i] - self.values['Среднее'])**2 for i in range(N)]) / N
+        self.values['CKO'] = math.sqrt(self.values['Дисперсия'])
+        self.values['Коэффициент вариации'] = self.values['CKO'] / self.values['Среднее']
+        self.values['Коэффициент асимметрии'] = sum([(raw[i] - self.values['Среднее'])**3 for i in range(N)]) / N / self.values['CKO']**3
+        self.values['Коэффициент эксцесса'] = sum([(raw[i] - self.values['Среднее'])**4 for i in range(N)]) / N / self.values['CKO']**4 - 3
+        return self.values
 
 
 app = MainFrame()
 app.geometry("800x600")
-app.resizable(width=False, height=False)
+# app.resizable(width=False, height=False)
 app.mainloop()
