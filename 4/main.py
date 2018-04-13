@@ -27,6 +27,9 @@ class MainFrame(tk.Tk):
         self.container.grid_rowconfigure(0, weight=1)
         self.container.grid_columnconfigure(0, weight=1)
 
+        self.fun_list = dict([f for f in getmembers(gen)
+                             if isfunction(f[1]) and f[0] != 'rename'])
+
         self.frames = {}
         row = 0
         for frame in (CenterFrame, BottomFrame):
@@ -50,6 +53,7 @@ class MainFrame(tk.Tk):
         print('update!')
         frame = self.frames[CenterFrame].frames[ParametersFrame]
         values = frame.getParameters()
+        del values['L_SPM']
         frame = self.frames[CenterFrame].frames[SelectorFrame]
         funName = frame.getFunction()
         engine = self.engines[RawGenerator]
@@ -73,6 +77,11 @@ class MainFrame(tk.Tk):
         x = numpy.arange(0, len(engine.raw), 1)
         fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
         ax = fig.gca()
+        plt.xlabel(u'n')
+        plt.ylabel(u'X(n)')
+        frame = self.frames[CenterFrame].frames[SelectorFrame]
+        funName = frame.getFunction()
+        plt.title(u'Функция "{}"'.format(self.fun_list[funName].__name__))
         plt.plot(x, engine.raw, '-', lw=2)
         plt.grid(True)
         plt.show()
@@ -82,6 +91,13 @@ class MainFrame(tk.Tk):
         x = numpy.arange(0, len(engine.raw), 1)
         fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
         ax = fig.gca()
+
+        plt.xlabel(u'n')
+        plt.ylabel(u'X(n)')
+        frame = self.frames[CenterFrame].frames[SelectorFrame]
+        funName = frame.getFunction()
+        plt.title(u'Функция "{}"'.format(self.fun_list[funName].__name__))
+
         plt.plot(x, engine.raw, '.', lw=2)
         plt.vlines(x, [0], engine.raw)
         plt.grid(True)
@@ -93,6 +109,31 @@ class MainFrame(tk.Tk):
         x = numpy.arange(0, len(fun), 1)
         fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
         ax = fig.gca()
+
+        plt.xlabel(u'n')
+        plt.ylabel(u'FFT(X(n)) -> Am(n)')
+        frame = self.frames[CenterFrame].frames[SelectorFrame]
+        funName = frame.getFunction()
+        plt.title(u'ДПФ. Амплитудный спектр. ({})'.format(self.fun_list[funName].__name__))
+
+        plt.plot(x, fun, '-', lw=2)
+        plt.grid(True)
+        plt.show()
+
+    def plotFFTLogAm(self):
+        engine = self.engines[RawGenerator]
+        lg = numpy.vectorize(lambda x: 20 * numpy.log10(x))
+        fun = lg(numpy.abs(numpy.fft.rfft(engine.raw)))
+        x = numpy.arange(0, len(fun), 1)
+        fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
+        ax = fig.gca()
+
+        plt.xlabel(u'n')
+        plt.ylabel(u'FFT(X(n)) -> Am(n)')
+        frame = self.frames[CenterFrame].frames[SelectorFrame]
+        funName = frame.getFunction()
+        plt.title(u'ДПФ. Амплитудный спектр (Log10). ({})'.format(self.fun_list[funName].__name__))
+
         plt.plot(x, fun, '-', lw=2)
         plt.grid(True)
         plt.show()
@@ -103,17 +144,34 @@ class MainFrame(tk.Tk):
         x = numpy.arange(0, len(fun), 1)
         fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
         ax = fig.gca()
+
+        plt.xlabel(u'n')
+        plt.ylabel(u'FFT(X(n)) -> Phase(n)')
+        frame = self.frames[CenterFrame].frames[SelectorFrame]
+        funName = frame.getFunction()
+        plt.title(u'ДПФ. Частотный спектр. ({})'.format(self.fun_list[funName].__name__))
+
         plt.plot(x, fun, '-', lw=2)
         plt.grid(True)
         plt.show()
 
     def plotSPM(self):
+        frame = self.frames[CenterFrame].frames[ParametersFrame]
+        values = frame.getParameters()
+
         engine = self.engines[RawGenerator]
-        psd = spectrum.DaniellPeriodogram(engine.raw, 1)
+        psd = spectrum.DaniellPeriodogram(engine.raw, values['L_SPM'])
         psd_plot_data = numpy.sqrt(numpy.power(psd[0], 2.0) + numpy.power(psd[1], 2.0))
         x = numpy.arange(0, len(psd_plot_data), 1)
         fig = plt.figure(num=None, figsize=(16, 6), dpi=80)
         ax = fig.gca()
+
+        plt.xlabel(u'n')
+        plt.ylabel(u'SPM(X(n))')
+        frame = self.frames[CenterFrame].frames[SelectorFrame]
+        funName = frame.getFunction()
+        plt.title(u'СПМ. ({})'.format(self.fun_list[funName].__name__))
+
         plt.plot(x, psd_plot_data, '-', lw=2)
         plt.grid(True)
         plt.show()
@@ -219,6 +277,7 @@ class ParametersFrame(tk.Frame):
         self.container.destroy()
         self.container = tk.Frame(self)
         self.container.pack(side="top", fill="x")
+        parameters.append('L_SPM')
 
         i = 0
         for title in parameters:
@@ -238,10 +297,10 @@ class ParametersFrame(tk.Frame):
         res = {}
         for key, val in self.entries.items():
             try:
-                if (key == 'n' or key == 'n0'):
+                if (key == 'n' or key == 'n0' or key == 'L_SPM'):
                     res[key] = int(val.get())
                 elif (key == 'aMass' or key == 'bMass'):
-                    res[key] = list(map(int, val.get().split(',')))
+                    res[key] = list(map(float, val.get().split(',')))
                 else:
                     res[key] = float(val.get())
             except ValueError:
@@ -270,18 +329,27 @@ class BottomFrame(tk.Frame):
                                            text='Plot (linear inter.)',
                                            command=lambda: controller.plotLinear())
         self.plotLinearButton.pack(side="left", padx=2)
+
         self.plotLinesButton = ttk.Button(self,
                                           text='Plot (vetical lines)',
                                           command=lambda: controller.plotLines())
         self.plotLinesButton.pack(side="left", padx=2)
+
         self.plotFFTAmButton = ttk.Button(self,
                                           text='Plot (FFT Amplitude)',
                                           command=lambda: controller.plotFFTAm())
         self.plotFFTAmButton.pack(side="left", padx=2)
+
+        self.plotFFTLogAmButton = ttk.Button(self,
+                                             text='Plot (20Log FFT Amplitude)',
+                                             command=lambda: controller.plotFFTLogAm())
+        self.plotFFTLogAmButton.pack(side="left", padx=2)
+
         self.plotFFTMomentButton = ttk.Button(self,
                                           text='Plot (FFT Phase)',
                                           command=lambda: controller.plotFFTMoment())
         self.plotFFTMomentButton.pack(side="left", padx=2)
+
         self.plotSPMButton = ttk.Button(self,
                                           text='Plot (SPM)',
                                           command=lambda: controller.plotSPM())
@@ -340,6 +408,6 @@ class StatGenerator:
 
 
 app = MainFrame()
-app.geometry("800x600")
+app.geometry("900x600")
 # app.resizable(width=False, height=False)
 app.mainloop()
